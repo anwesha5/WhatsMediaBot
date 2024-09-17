@@ -1,0 +1,142 @@
+import os
+
+main_dir = "/mnt/data/whatsapp_bot"
+sub_dirs = [
+    "config", 
+    "src", 
+    "src/utils", 
+    "tests"
+]
+
+os.makedirs(main_dir, exist_ok=True)
+for sub_dir in sub_dirs:
+    os.makedirs(os.path.join(main_dir, sub_dir), exist_ok=True)
+
+files_content = {
+    "Dockerfile": """FROM python:3.9-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY src/ ./src
+COPY config/ ./config
+
+RUN apt-get update && apt-get install -y \\
+    chromium-driver \\
+    chromium
+
+CMD ["python", "src/whatsapp_bot.py"]
+""",
+    "requirements.txt": """selenium==4.5.0
+webdriver_manager==3.8.5
+PyYAML==6.0
+""",
+    "config/config.yaml": """whatsapp_group: "Your Group Name"
+image_path: "/path/to/image.jpg"
+caption: "Your Caption"
+""",
+    "src/whatsapp_bot.py": """import yaml
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from utils.browser_setup import get_headless_browser
+from utils.image_uploader import send_image_with_caption
+import time
+
+with open('../config/config.yaml', 'r') as file:
+    config = yaml.safe_load(file)
+
+def open_whatsapp():
+    driver = get_headless_browser()
+    driver.get('https://web.whatsapp.com/')
+    input("Scan the QR code and press Enter...")
+    return driver
+
+def find_group_and_send_message(driver, group_name, image_path, caption):
+    search_box = driver.find_element(By.XPATH, '//div[@contenteditable="true"]')
+    search_box.send_keys(group_name)
+    time.sleep(2)
+    group = driver.find_element(By.XPATH, f'//span[@title="{group_name}"]')
+    group.click()
+    
+    send_image_with_caption(driver, image_path, caption)
+
+if __name__ == "__main__":
+    driver = open_whatsapp()
+    find_group_and_send_message(driver, config['whatsapp_group'], config['image_path'], config['caption'])
+    driver.quit()
+""",
+    "src/scheduler.py": """import schedule
+import time
+from whatsapp_bot import find_group_and_send_message, open_whatsapp
+import yaml
+
+with open('../config/config.yaml', 'r') as file:
+    config = yaml.safe_load(file)
+
+def job():
+    driver = open_whatsapp()
+    find_group_and_send_message(driver, config['whatsapp_group'], config['image_path'], config['caption'])
+    driver.quit()
+
+schedule.every().day.at("09:00").do(job)
+
+while True:
+    schedule.run_pending()
+    time.sleep(60)  # wait one minute
+""",
+    "src/utils/browser_setup.py": """from selenium import webdriver
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+
+def get_headless_browser():
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+    return driver
+""",
+    "src/utils/image_uploader.py": """from selenium.webdriver.common.by import By
+import time
+
+def send_image_with_caption(driver, image_path, caption):
+    attachment_box = driver.find_element(By.XPATH, '//div[@title="Attach"]')
+    attachment_box.click()
+
+    image_box = driver.find_element(By.XPATH, '//input[@accept="image/*,video/mp4,video/3gpp,video/quicktime"]')
+    image_box.send_keys(image_path)
+
+    time.sleep(2)
+    
+    caption_box = driver.find_element(By.XPATH, '//div[@contenteditable="true"][@data-tab="6"]')
+    caption_box.send_keys(caption)
+    
+    send_button = driver.find_element(By.XPATH, '//span[@data-icon="send"]')
+    send_button.click()
+""",
+    "tests/test_whatsapp_bot.py": """import unittest
+from src.whatsapp_bot import find_group_and_send_message
+from selenium import webdriver
+
+class WhatsAppBotTest(unittest.TestCase):
+    def test_find_group(self):
+        driver = webdriver.Chrome()
+        driver.get("https://web.whatsapp.com/")
+        # Test logic here for group searching
+        driver.quit()
+
+if __name__ == "__main__":
+    unittest.main()
+"""
+}
+
+for file_path, content in files_content.items():
+    with open(os.path.join(main_dir, file_path), 'w') as f:
+        f.write(content)
+
+main_dir
